@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'eg-build-container:latest'
+            image 'ghcr.io/lmudda/eg-build-container:windows'
             reuseNode true
         }
     }
@@ -9,8 +9,8 @@ pipeline {
         stage('Test Docker') {
             steps {
                 echo "✅ Jenkins is running inside Docker now"
-                sh 'uname -a'
-                sh 'ls -la /opt/snapshots'
+                bat 'ver'   // Windows equivalent of "uname -a"
+                bat 'dir C:\\opt\\snapshots'
             }
         }
     }
