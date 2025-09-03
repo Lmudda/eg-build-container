@@ -1,16 +1,23 @@
 pipeline {
     agent {
-        docker {
-            image 'ghcr.io/lmudda/eg-build-container:windows'
-            reuseNode true
-        }
+        label 'eg-build-container'
     }
+
+    options {
+        skipDefaultCheckout()
+    }
+
     stages {
-        stage('Test Docker') {
+        stage('Checkout Source') {
             steps {
-                echo "✅ Jenkins is running inside Docker now"
-                bat 'ver'   // Windows equivalent of "uname -a"
-                bat 'dir C:\\opt\\snapshots'
+                checkout scm
+            }
+        }
+
+        stage('Build Project') {
+            steps {
+                sh 'cmake .'
+                sh 'make'
             }
         }
     }
