@@ -1,24 +1,26 @@
 pipeline {
-    agent {
-        label 'eg-build-container'
+  agent {
+    docker {
+      image 'ghcr.io/lmudda/eg-build-container:linux'
     }
 
-    options {
-        skipDefaultCheckout()
+  }
+  stages {
+    stage('Checkout Source') {
+      steps {
+        checkout scm
+      }
     }
 
-    stages {
-        stage('Checkout Source') {
-            steps {
-                checkout scm
-            }
-        }
-
-        stage('Build Project') {
-            steps {
-                sh 'cmake .'
-                sh 'make'
-            }
-        }
+    stage('Build Project') {
+      steps {
+        sh 'cmake .'
+        sh 'make'
+      }
     }
+
+  }
+  options {
+    skipDefaultCheckout()
+  }
 }
