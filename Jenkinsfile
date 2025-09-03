@@ -1,4 +1,5 @@
 pipeline {
+ HEAD
     agent {
         docker {
             image 'ghcr.io/lmudda/eg-build-container:linux'
@@ -26,5 +27,30 @@ pipeline {
                 archiveArtifacts artifacts: '**/*.hex', fingerprint: true
             }
         }
+=======
+  agent {
+    docker {
+      image 'ghcr.io/lmudda/eg-build-container:linux'
     }
+
+  }
+  stages {
+    stage('Checkout Source') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Build Project') {
+      steps {
+        sh 'cmake .'
+        sh 'make'
+      }
+1164d6fad5c227acf93986df5093e7d542dab94f
+    }
+
+  }
+  options {
+    skipDefaultCheckout()
+  }
 }
