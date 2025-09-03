@@ -1,0 +1,307 @@
+#  (c) eg technology ltd, 2024.  All rights reserved.
+#
+#  This software is the property of eg technology ltd. and may not be copied or reproduced
+#  otherwise than on to a single hard disk for backup or archival purposes. The source code is
+#  confidential information and must not be disclosed to third parties or used without the
+#  express written permission of eg technology ltd.
+
+# CI/CD workflow for eg_otway_portable
+
+# TODO: Version number and filename from tag
+      
+name: main
+
+# Controls when the workflow will run.
+on:
+  # Triggers the workflow on push events.
+  push:
+
+  # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
+
+  pull_request:
+    branches: [ "main" ]
+    types: [opened, reopened]
+
+#permissions:
+#  pages: write
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel.
+jobs:
+  # Job to build and run the unit tests
+  unit_tests_and_coverage:
+    runs-on: [self-hosted, docker-linux]
+    defaults:
+      run:
+        working-directory: ./test
+    container:
+      # REALLY IMPORTANT: After uploading a package to ghcr.io, you HAVE to grant access to it via https://github.com/orgs/egtechnology/packages
+      image: ghcr.io/egtechnology/stm32cubeclt:1.18.0
+      # Choice of credentials can affect billing. If using GITHUB_TOKEN then data
+      # transferred out to self-hosted runner is free, but if using a personal
+      # access token, you have to pay.
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+      volumes:
+        - ${{ github.workspace }}:/ws
+    env:
+      BUILD_DIR: 'build'
+      
+    steps:
+      # Checks-out the repository under $GITHUB_WORKSPACE, for access by the job.
+      # This repo has submodules, so also do a recursive checkout of submodules.
+      # The default GitHub token that is associated with this action does not have
+      # access to private repositories in the same organisation, so it is necessary
+      # to use a special token for checking out these submodules. This shouldn't be
+      # persisted because it can affect subsequent steps (and might lead to recursive
+      # actions if not careful).
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.checkout_submodules_token }}
+          persist-credentials: false  # Don't want subsequent steps to have access to this token
+
+      - name: Install pre-requisites
+        run: |
+          apt-get update
+          apt-get install -y lcov=2.0-4ubuntu2
+          pip install --break-system-packages junit2html==31.0.2
+
+      - name: Make build folder
+        run: mkdir $BUILD_DIR
+
+      - name: Baremetal - use CMake to generate a project buildsystem
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=BAREMETAL
+
+      - name: Baremetal - make, run tests and coverage
+        run: cd $BUILD_DIR && make coverage
+
+      - name: Baremetal - make HTML test report
+        if: always()
+        run: cd $BUILD_DIR && make tests-to-html
+        
+      - name: Baremetal - upload test logs and html report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automated-test-logs-baremetal
+          path: |
+            ./test/${{ env.BUILD_DIR }}/test_result.*
+          if-no-files-found: error
+    
+      - name: Baremetal - upload code coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-report-baremetal
+          path: |
+           ./test/${{ env.BUILD_DIR }}/coverage
+          if-no-files-found: error
+
+      # This uses a private fork of the "test-summary" action to avoid using 3rd-party actions that could change at any time.
+      - name: Baremetal - automated test summary
+        if: always()
+        uses: egtechnology/action-test-summary@v2.2
+        with:
+          paths: ./test/${{ env.BUILD_DIR }}/*.xml
+          show: "fail, skip"
+
+      - name: Clean output directory
+        run: rm -rf "$BUILD_DIR"
+
+      - name: Linux - use CMake to generate a project buildsystem
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=LINUX
+
+      - name: Linux - make, run tests and coverage
+        run: cd $BUILD_DIR && make coverage
+
+      - name: Linux - make HTML test report
+        if: always()
+        run: cd $BUILD_DIR && make tests-to-html
+        
+      - name: Linux - upload test logs and html report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: automated-test-logs-linux
+          path: |
+            ./test/${{ env.BUILD_DIR }}/test_result.*
+          if-no-files-found: error
+    
+      - name: Linux - upload code coverage summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-coverage-report-linux
+          path: |
+           ./test/${{ env.BUILD_DIR }}/coverage
+          if-no-files-found: error
+
+      # This uses a private fork of the "test-summary" action to avoid using 3rd-party actions that could change at any time.
+      - name: Linux - automated test summary
+        if: always()
+        uses: egtechnology/action-test-summary@v2.2
+        with:
+          paths: ./test/${{ env.BUILD_DIR }}/*.xml
+          show: "fail, skip"
+
+
+  # Job to run static analysis with Code Checker
+  static_analysis:
+    runs-on: [self-hosted, docker-linux]
+    defaults:
+      run:
+        working-directory: ./test
+    container:
+      image: ghcr.io/egtechnology/stm32cubeclt:1.18.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+      volumes:
+        - ${{ github.workspace }}:/ws
+    env:
+      BUILD_DIR: 'build/linux'
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.checkout_submodules_token }}
+          persist-credentials: false  # Don't want subsequent steps to have access to this token
+
+      - name: Install pre-requisites
+        run: |
+          apt-get update
+          apt-get install -y clang=1:18.0-59~exp2
+          apt-get install -y clang-tidy=1:18.0-59~exp2
+          apt-get install -y cppcheck=2.13.0-2ubuntu3
+          pip install --break-system-packages -Iv codechecker==6.26.0
+
+      - name: Baremetal - use CMake to generate a project buildsystem
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=BAREMETAL
+
+      - name: Baremetal - Run code checker
+        run: cd $BUILD_DIR && make codechecker-report
+          
+      - name: Baremetal - write out the list of rules and checker versions
+        if: always()
+        run: |
+          CodeChecker checkers --analyzers clangsa clang-tidy cppcheck > $BUILD_DIR/codechecker-html/checker-checks.txt
+          echo "CodeChecker version:" > $BUILD_DIR/codechecker-html/checker-versions.txt
+          CodeChecker version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "Clang version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang -v >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "Clang-tidy version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang-tidy -version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "cppcheck version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang --version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+
+      - name: Baremetal - upload codechecker output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codechecker-output-baremetal
+          path: ./test/${{ env.BUILD_DIR }}/codechecker-html
+          if-no-files-found: error
+      
+      - name: Clean output directory
+        if: always()
+        run: rm -rf "$BUILD_DIR"
+      
+      - name: Linux - use CMake to generate a project buildsystem
+        if: always()
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=LINUX
+
+      - name: Linux - Run code checker
+        if: always()
+        run: cd $BUILD_DIR && make codechecker-report
+          
+      - name: Linux - write out the list of rules and checker versions
+        if: always()
+        run: |
+          CodeChecker checkers --analyzers clangsa clang-tidy cppcheck > $BUILD_DIR/codechecker-html/checker-checks.txt
+          echo "CodeChecker version:" > $BUILD_DIR/codechecker-html/checker-versions.txt
+          CodeChecker version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "Clang version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang -v >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "Clang-tidy version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang-tidy -version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          echo "cppcheck version:" >> $BUILD_DIR/codechecker-html/checker-versions.txt
+          clang --version >> $BUILD_DIR/codechecker-html/checker-versions.txt
+
+      - name: Linux - upload codechecker output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codechecker-output-linux
+          path: ./test/${{ env.BUILD_DIR }}/codechecker-html
+          if-no-files-found: error
+
+  # Job to run static analysis with Code Checker
+  complexity_analysis:
+    runs-on: [self-hosted, docker-linux]
+    defaults:
+      run:
+        working-directory: ./test
+    container:
+      image: ghcr.io/egtechnology/stm32cubeclt:1.18.0
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
+      volumes:
+        - ${{ github.workspace }}:/ws
+    env:
+      BUILD_DIR: 'build/linux'
+
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.checkout_submodules_token }}
+          persist-credentials: false  # Don't want subsequent steps to have access to this token
+
+      - name: Install pre-requisites
+        run: |
+          apt-get update
+          apt-get install -y clang=1:18.0-59~exp2
+          apt-get install -y clang-tidy=1:18.0-59~exp2
+          apt-get install -y cppcheck=2.13.0-2ubuntu3
+          pip install --break-system-packages -Iv codechecker==6.26.0
+
+      - name: Baremetal - use CMake to generate a project buildsystem
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=BAREMETAL
+
+      - name: Baremetal - Run code checker
+        run: cd $BUILD_DIR && make codechecker-complexity-report
+
+      - name: Baremetal - upload codechecker output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-output-baremetal
+          path: ./test/${{ env.BUILD_DIR }}/codechecker-complexity-html
+          if-no-files-found: error
+      
+      - name: Clean output directory
+        if: always()
+        run: rm -rf "$BUILD_DIR"
+      
+      - name: Linux - use CMake to generate a project buildsystem
+        if: always()
+        run: cmake -S . -B $BUILD_DIR -DOTWAY_TARGET_PLATFORM=LINUX
+
+      - name: Linux - Run code checker
+        if: always()
+        run: cd $BUILD_DIR && make codechecker-complexity-report
+
+      - name: Linux - upload codechecker output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-output-linux
+          path: ./test/${{ env.BUILD_DIR }}/codechecker-complexity-html
+          if-no-files-found: error

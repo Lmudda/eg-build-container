@@ -1,18 +1,22 @@
-# Use Windows Server Core as base
-FROM mcr.microsoft.com/windows/servercore:ltsc2022
+# Use a Linux base image for the build environment
+FROM ubuntu:22.04
 
-# Install Chocolatey
-RUN powershell -NoProfile -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))"
+# Set environment variables to avoid prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install required tools including Java (needed for Jenkins agent)
-RUN choco install -y git python cmake make openjdk17
+# Update package lists and install necessary build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    git \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set JAVA_HOME and update PATH
-ENV JAVA_HOME="C:\\Program Files\\OpenJDK\\jdk-17"
-ENV PATH="%JAVA_HOME%\\bin;%PATH%"
+# Create a build directory
+WORKDIR /usr/src/app
 
-# Copy snapshots into container
-COPY snapshots C:/opt/snapshots
+# Clean up
+RUN apt-get autoremove -y && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Default shell
-CMD ["cmd.exe"]
+# Default command
+CMD ["bash"]

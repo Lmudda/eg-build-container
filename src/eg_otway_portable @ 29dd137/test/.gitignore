@@ -1,0 +1,7 @@
+# Template files
+/linux
+/windows
+/output.txt
+
+# Generate during testing
+/Testing/

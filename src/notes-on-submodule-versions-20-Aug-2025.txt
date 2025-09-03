@@ -1,0 +1,4 @@
+eg-otway-portable: 29dd137
+eg-otway-stm32: 1b9ae87
+Corresponding to commit 7535d29 of the main repository. 
+ 

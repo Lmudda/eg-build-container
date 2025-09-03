@@ -1,0 +1,7 @@
+# Global owners (default owners).
+# Unless a later match takes precedence, these will be asked for
+# a review when a pull request is opened.
+*  @egtalchambers @egtdavidgammie @egtjohnconnah
+
+# Owners of this file
+/.github/CODEOWNERS  @egtalchambers @egtdavidgammie @egtjohnconnah @egtdavidwarwick
